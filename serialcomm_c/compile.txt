@@ -1,0 +1,1 @@
+g++ -o serialcomm.exe serialcomm.cpp lib/serialib.cpp -I lib
