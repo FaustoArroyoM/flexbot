@@ -1,3 +1,11 @@
+# Ignore build directories
+serialcomm_c/build/
+build/
+
+# Ignore editor configs 
+.vscode/
+compile_commands.json
+
 # Prerequisites
 *.d
 
@@ -39,3 +47,5 @@
 
 # debug information files
 *.dwo
+
+
