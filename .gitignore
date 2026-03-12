@@ -1,11 +1,24 @@
-# Ignore build directories
+# build directories
 serialcomm_c/build/
+serialcomm_c/compile_commands.json
 build/
 
-# Ignore editor configs 
+# platfomIO code
+firmware/.pio/
+firmware/compile_commands.json
+firmware/.vscode/.browse.c_cpp.db*
+firmware/.vscode/c_cpp_properties.json
+firmware/.vscode/launch.json
+firmware/.vscode/ipch
+
+
+#  editor configs 
 .vscode/
 compile_commands.json
-
+*.clang-tidy
+*.bak
+*.clangd
+.cache/
 # Prerequisites
 *.d
 
@@ -18,7 +31,7 @@ compile_commands.json
 # Precompiled Headers
 *.gch
 *.pch
-
+S
 # Linker files
 *.ilk
 
