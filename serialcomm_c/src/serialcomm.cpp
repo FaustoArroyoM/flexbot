@@ -10,81 +10,85 @@
 // #include <stdio.h>
 #include <unistd.h>
 
-// using namespace std;
-
-int main() {
-  int userlen = 0;
-
+int askSimulationLength() {
+  int len = 0;
   std::cout << "Give simulation length as an integer: ";
-  std::cin >> userlen;
+  std::cin >> len;
+  return len;
+}
 
-  const int len = userlen;
+bool openConnection(serialib &serial) {
+  char err = serial.openDevice(SERIAL_PORT, BAUD_RATE);
+  if (err != 1) {
+    std::cout << "No connection to " << SERIAL_PORT << " possible.\n";
+    return false;
+  }
+  std::cout << "Successful connection to " << SERIAL_PORT << "\n";
+  sleep(1);
+  serial.flushReceiver();
+  sleep(1);
+  return true;
+}
 
+void saveToFile(const std::vector<Sample> &data, const std::string &filename) {
+  std::ofstream file(filename);
+  if (!file.is_open()) {
+    std::cout << "Unable to open file: " << filename << "\n";
+    return;
+  }
+  for (const Sample &s : data) {
+    file << s.pos1 << " " << s.pos2 << " " << s.strain1 << " " << s.strain2
+         << " " << s.strain1div << " " << s.strain2div << " " << s.cycle_time_ms
+         << " " << s.out1 << " " << s.out2 << "\n";
+  }
+}
+
+//  Helper for runControlLoop
+// Extracts one int16 value from two consecutive bytes in a buffer
+// const uint8_t* buf  — read-only pointer to the buffer (no copy)
+// int offset          — which byte position to start reading from
+// float scale         — divide by this to recover the original float
+float extractField(const uint8_t *buf, int offset, float scale) {
+  return static_cast<float>(
+             static_cast<int16_t>(buf[offset] | buf[offset + 1] << 8)) /
+         scale;
+}
+
+std::vector<Sample> runControlLoop(serialib &serial, int len) {
   std::vector<Sample> data(len);
-  // float nums[len][7] = {0};
-  // float outs[len][2] = {0};
 
-  // int out1d = 0;
-  // int out2d = 0;
-  // float times[len] = {0};
-  unsigned char buffer_write[3] = {0};
-  unsigned char buffer_read[16] = {0};
-  int identifier_read = 0;
+  unsigned char buffer_write[PACKET_WRITE_SIZE] = {0};
+  unsigned char buffer_read[PACKET_READ_SIZE] = {0};
 
   // float randwalk1 = 0;
   // float randwalk2 = 0;
 
-  // Serial object
-  serialib serial;
-
-  // Connection to serial port
-  char errorOpening = serial.openDevice(SERIAL_PORT, BAUD_RATE);
-
-  // If connection fails, return the error code otherwise, display a success
-  // message
-  if (errorOpening != 1) {
-    std::cout << "No connection to " << SERIAL_PORT << " possible.."
-              << std::endl;
-    sleep(1);
-    return errorOpening;
-  }
-  std::cout << "Successful connection to " << SERIAL_PORT << std::endl;
-
-  sleep(1);
-  serial.flushReceiver();
-  sleep(1);
-
-  // Write the string on the serial device
+  // Send START command
   buffer_write[0] = FLAG_STARTSTOP;
   buffer_write[1] = 0;
   buffer_write[2] = 0;
-  serial.writeBytes(buffer_write, 3);
+  serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
 
+  // Start of the Control loop
   for (int i = 0; i < len; i++) {
     // Read the string:
-    serial.readBytes(buffer_read, 16, 2000);
+    serial.readBytes(buffer_read, PACKET_READ_SIZE, SERIAL_TIMEOUT_MS);
 
-    identifier_read = int16_t(buffer_read[0] | buffer_read[1] << 8);
+    const int identifier_read =
+        static_cast<int16_t>(buffer_read[0] | buffer_read[1] << 8);
+
     if (identifier_read == FLAG_SEND) {
-      // Store data in preallocated dynamic array:
-      data[i].pos1 =
-          float(int16_t(buffer_read[2] | buffer_read[3] << 8) / 100.0);
-      data[i].pos2 =
-          float(int16_t(buffer_read[4] | buffer_read[5] << 8) / 100.0);
-      data[i].strain1 =
-          float(int16_t(buffer_read[6] | buffer_read[7] << 8) / 1000.0);
-      data[i].strain2 =
-          float(int16_t(buffer_read[8] | buffer_read[9] << 8) / 1000.0);
-      data[i].strain1div =
-          float(int16_t(buffer_read[10] | buffer_read[11] << 8) / 100.0);
-      data[i].strain2div =
-          float(int16_t(buffer_read[12] | buffer_read[13] << 8) / 100.0);
-      data[i].cycle_time_ms =
-          float(int16_t(buffer_read[14] | buffer_read[15] << 8) / 100.0);
+      data[i].pos1 = extractField(buffer_read, 2, 100.0F);
+      data[i].pos2 = extractField(buffer_read, 4, 100.0F);
+      data[i].strain1 = extractField(buffer_read, 6, 1000.0F);
+      data[i].strain2 = extractField(buffer_read, 8, 1000.0F);
+      data[i].strain1div = extractField(buffer_read, 10, 100.0F);
+      data[i].strain2div = extractField(buffer_read, 12, 100.0F);
+      data[i].cycle_time_ms = extractField(buffer_read, 14, 100.0F);
 
       // std::cout << "Cycle in ms: " << data[i].cycle_time_ms << std::endl;
 
-      // Creates current iteration state array
+      // Compute Control Output
       const std::array<float, 6> state = {
           data[i].pos1,    data[i].pos2,       data[i].strain1,
           data[i].strain2, data[i].strain1div, data[i].strain2div};
@@ -96,13 +100,6 @@ int main() {
         out1_raw += K[0][k] * state[k]; // motor 1
         out2_raw += K[1][k] * state[k]; // motor 2
       }
-
-      // // compute controls:
-      // for (int j = 0; j < 2; j++) {
-      //   for (int k = 0; k < 6; k++) {
-      //     outs[i][j] += (K[j][k] * nums[i][k]);
-      //   }
-      // }
 
       // random walk for PE:
       // randwalk1 += 0.08*(float(rand())/RAND_MAX - 0.5);
@@ -128,28 +125,8 @@ int main() {
       buffer_write[2] = static_cast<unsigned char>(out2d);
       serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
 
-      // out1d = int(256 / 3.3 * outs[i][0] + 127);
-      // out2d = int(256 / 3.3 * outs[i][1] + 127 - 2);
-      // if (out1d > 255) {
-      //   out1d = 255;
-      // }
-      // if (out1d < 0) {
-      //   out1d = 0;
-      // }
-      // if (out2d > 255) {
-      //   out2d = 255;
-      // }
-      // if (out2d < 0) {
-      //   out2d = 0;
-      // }
-
-      // buffer_write[0] = FLAG_CONTROL;
-      // buffer_write[1] = out1d;
-      // buffer_write[2] = out2d;
-      // serial.writeBytes(buffer_write, 3);
-
     } else {
-      std::cout << "Error!" << std::endl;
+      std::cout << "Error! Unexpected packet identifier.\n";
       break;
     }
   }
@@ -157,40 +134,25 @@ int main() {
   buffer_write[0] = FLAG_STARTSTOP;
   buffer_write[1] = 1;
   buffer_write[2] = 1;
-  serial.writeBytes(buffer_write, 3);
+  serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
+
+  return data;
+};
+
+int main() {
+  const int len = askSimulationLength();
+
+  serialib serial;
+  if (!openConnection(serial))
+    return 1;
+
+  const std::vector<Sample> data = runControlLoop(serial, len);
+
   // Close the serial device
   sleep(1);
   serial.closeDevice();
-  std::cout << "Done!" << std::endl;
+  std::cout << "Done!";
 
-  // for(int i = 0; i < len; i++){
-  //     std::cout << "Cycle in ms: " << nums[i][6] << std::endl;
-  // }
-
-  // Store data in text file:
-  std::ofstream file("data.txt");
-  if (file.is_open()) {
-    for (int i = 0; i < len; i++) {
-      file << data[i].pos1 << " " << data[i].pos2 << " " << data[i].strain1
-           << " " << data[i].strain2 << " " << data[i].strain1div << " "
-           << data[i].strain2div << " " << data[i].cycle_time_ms << " "
-           << data[i].out1 << " " << data[i].out2 << "\n";
-    }
-
-    // for (int i = 0; i < len; i++) {
-    //   for (int j = 0; j <= 6; j++) {
-    //     file << double(nums[i][j]) << " ";
-    //   }
-    //   for (int j = 0; j <= 1; j++) {
-    //     file << double(outs[i][j]) << " ";
-    //   }
-    //   file << "\n";
-    // }
-
-    file.close();
-
-  } else {
-    std::cout << "Unable to open file\n";
-  }
+  saveToFile(data, "data.txt");
   return 0;
 }

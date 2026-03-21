@@ -48,3 +48,6 @@ constexpr int OUT_NEUTRAL_1 = 127;
 constexpr int OUT_NEUTRAL_2 = 125;
 constexpr int OUT_MAX = 255;
 constexpr int OUT_MIN = 0;
+
+constexpr float DAC_SCALE = 256.0F / 3.3F; // voltage → uint8 scaling
+constexpr int SERIAL_TIMEOUT_MS = 2000;    // readBytes timeout
