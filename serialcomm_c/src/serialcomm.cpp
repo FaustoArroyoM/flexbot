@@ -2,6 +2,8 @@
 #include "serialib.h"
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -37,9 +39,18 @@ void saveToFile(const std::vector<Sample> &data, const std::string &filename) {
     std::cout << "Unable to open file: " << filename << "\n";
     return;
   }
+
+  // Metadata rows prefixed for  -> df = pd.read_csv("run_XXX.csv", comment='#')
+  file << "# K_motor1: " << K[0][0] << "," << K[0][1] << "," << K[0][2] << ","
+       << K[0][3] << "," << K[0][4] << "," << K[0][5] << "\n";
+  file << "# K_motor2: " << K[1][0] << "," << K[1][1] << "," << K[1][2] << ","
+       << K[1][3] << "," << K[1][4] << "," << K[1][5] << "\n";
+  file << "# samples: " << data.size() << "\n";
+
   // CSV header row
   file << "pos1,pos2,strain1,strain2,"
        << "strain1div,strain2div,cycle_time_ms,out1,out2\n";
+
   for (const Sample &s : data) {
     file << s.pos1 << "," << s.pos2 << "," << s.strain1 << "," << s.strain2
          << "," << s.strain1div << "," << s.strain2div << "," << s.cycle_time_ms
@@ -166,7 +177,14 @@ int main(int argc, char *argv[]) {
         std::filesystem::canonical("/proc/self/exe").parent_path();
     const std::filesystem::path data_dir = exe_dir.parent_path() / "data";
     std::filesystem::create_directories(data_dir);
-    filepath = (data_dir / "output.csv").string();
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    char timestamp[10];
+    std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M",
+                  std::localtime(&t));
+    filepath =
+        (data_dir / (std::string("output_") + timestamp + ".csv")).string();
   }
 
   saveToFile(data, filepath);
