@@ -3,6 +3,9 @@ serialcomm_c/build/
 serialcomm_c/compile_commands.json
 build/
 
+*.csv
+
+
 # platfomIO code
 firmware/.pio/
 firmware/compile_commands.json

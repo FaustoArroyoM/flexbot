@@ -2,6 +2,7 @@
 #include "serialib.h"
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -36,10 +37,13 @@ void saveToFile(const std::vector<Sample> &data, const std::string &filename) {
     std::cout << "Unable to open file: " << filename << "\n";
     return;
   }
+  // CSV header row
+  file << "pos1,pos2,strain1,strain2,"
+       << "strain1div,strain2div,cycle_time_ms,out1,out2\n";
   for (const Sample &s : data) {
-    file << s.pos1 << " " << s.pos2 << " " << s.strain1 << " " << s.strain2
-         << " " << s.strain1div << " " << s.strain2div << " " << s.cycle_time_ms
-         << " " << s.out1 << " " << s.out2 << "\n";
+    file << s.pos1 << "," << s.pos2 << "," << s.strain1 << "," << s.strain2
+         << "," << s.strain1div << "," << s.strain2div << "," << s.cycle_time_ms
+         << "," << s.out1 << "," << s.out2 << "\n";
   }
 }
 
@@ -139,7 +143,7 @@ std::vector<Sample> runControlLoop(serialib &serial, int len) {
   return data;
 };
 
-int main() {
+int main(int argc, char *argv[]) {
   const int len = askSimulationLength();
 
   serialib serial;
@@ -153,6 +157,19 @@ int main() {
   serial.closeDevice();
   std::cout << "Done!";
 
-  saveToFile(data, "data.txt");
+  // Save measurements to desired location
+  std::string filepath;
+  if (argc > 1) {
+    filepath = argv[1];
+  } else {
+    const std::filesystem::path exe_dir =
+        std::filesystem::canonical("/proc/self/exe").parent_path();
+    const std::filesystem::path data_dir = exe_dir.parent_path() / "data";
+    std::filesystem::create_directories(data_dir);
+    filepath = (data_dir / "output.csv").string();
+  }
+
+  saveToFile(data, filepath);
+  std::cout << "Data saved to: " << filepath << "\n";
   return 0;
 }

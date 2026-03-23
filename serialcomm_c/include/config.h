@@ -41,8 +41,8 @@ constexpr uint8_t FLAG_STARTSTOP = 120;
 constexpr uint8_t FLAG_CONTROL = 99;
 constexpr uint8_t FLAG_SEND = 109;
 
-constexpr int PACKET_WRITE_SIZE = 3;
-constexpr int PACKET_READ_SIZE = 16;
+constexpr int PACKET_WRITE_SIZE = 3; // PC→ESP32: flag + two outputs
+constexpr int PACKET_READ_SIZE = 16; // ESP32→PC: pos, strain, time
 
 constexpr int OUT_NEUTRAL_1 = 127;
 constexpr int OUT_NEUTRAL_2 = 125;
@@ -51,3 +51,6 @@ constexpr int OUT_MIN = 0;
 
 constexpr float DAC_SCALE = 256.0F / 3.3F; // voltage → uint8 scaling
 constexpr int SERIAL_TIMEOUT_MS = 2000;    // readBytes timeout
+
+// constexpr const char* OUTPUT_FILE =
+// "/home/fausto/Desktop/flexbot/data/output.csv";
