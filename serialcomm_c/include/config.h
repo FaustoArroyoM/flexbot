@@ -1,17 +1,14 @@
 #pragma once // modern alternative to #ifndef guards
 #include <cstdint>
 
-struct Sample {
-  float pos1 = 0.0f;
-  float pos2 = 0.0f;
-  float strain1 = 0.0f;
-  float strain2 = 0.0f;
-  float strain1div = 0.0f;
-  float strain2div = 0.0f;
-  float cycle_time_ms = 0.0f;
-  float out1 = 0.0f;
-  float out2 = 0.0f;
-};
+// =====================================================================
+// CONTROL MODE — change ONE line here and recompile both repos
+// HIGH_LEVEL : PC computes K*x → sends raw DAC values to ESP32
+// LOW_LEVEL  : ESP32 runs PI locally, PC only logs sensor data
+// HYBRID     : ESP32 fast PI tracks reference sent by PC
+// =====================================================================
+enum class CtrlMode { HIGH_LEVEL, LOW_LEVEL, HYBRID };
+constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;
 
 // Change Gain Matrix here and recompile!
 // Gain Matrix K [2 motors][6 states]
@@ -51,6 +48,21 @@ constexpr int OUT_MIN = 0;
 
 constexpr float DAC_SCALE = 256.0F / 3.3F; // voltage → uint8 scaling
 constexpr int SERIAL_TIMEOUT_MS = 2000;    // readBytes timeout
+
+// HYBRID mode: maximum encoder position range used to scale references into
+// uint8. Tune these to match the physical travel range of each joint.
+
+struct Sample {
+  float pos1 = 0.0f;
+  float pos2 = 0.0f;
+  float strain1 = 0.0f;
+  float strain2 = 0.0f;
+  float strain1div = 0.0f;
+  float strain2div = 0.0f;
+  float cycle_time_ms = 0.0f;
+  float out1 = 0.0f;
+  float out2 = 0.0f;
+};
 
 // constexpr const char* OUTPUT_FILE =
 // "/home/fausto/Desktop/flexbot/data/output.csv";

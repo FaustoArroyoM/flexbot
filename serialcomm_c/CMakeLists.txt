@@ -18,5 +18,10 @@ add_executable(flexbot_app
     src/serialib.cpp 
 )
 
+# # --- Benchmark tool (separate binary, not part of main build) ---
+# add_executable(benchmark tools/benchmark.cpp)
+# target_compile_features(benchmark PRIVATE cxx_std_17)
+
+
 # PRIVATE means these headers are only used by flexbot_app
 target_include_directories(flexbot_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
