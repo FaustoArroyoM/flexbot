@@ -62,6 +62,8 @@ struct Sample {
   float cycle_time_ms = 0.0f;
   float out1 = 0.0f;
   float out2 = 0.0f;
+  // float ref1 = 0.0f;
+  // float ref2 = 0.0f;
 };
 
 // constexpr const char* OUTPUT_FILE =

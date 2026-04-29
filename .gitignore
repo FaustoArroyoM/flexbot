@@ -5,7 +5,6 @@ build/
 
 *.csv
 
-
 # platfomIO code
 firmware/.pio/
 firmware/compile_commands.json
@@ -64,4 +63,9 @@ S
 # debug information files
 *.dwo
 
+#llm
+CLAUDE.md
+docs/architecture.md
+docs/open-issues.md
+docs/change-log.md
 

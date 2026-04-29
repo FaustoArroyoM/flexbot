@@ -162,7 +162,8 @@ std::vector<Sample> runControlLoop(serialib &serial, int len) {
       buffer_write[1] = static_cast<unsigned char>(out1d);
       buffer_write[2] = static_cast<unsigned char>(out2d);
 
-      serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
+      serial.writeBytes(
+        buffer_write, PACKET_WRITE_SIZE);
       // auto t_write_done = std::chrono::high_resolution_clock::now();
 
     } else if constexpr (CTRL_MODE == CtrlMode::LOW_LEVEL) {
@@ -170,6 +171,11 @@ std::vector<Sample> runControlLoop(serialib &serial, int len) {
       // The ESP32 is running its own PI loop; we are just an observer.
       // Log what the ESP32 decided (out1/out2 fields will be 0 — that's fine,
       // because we don't know the ESP32's internal output from this side).
+
+      // --- LOG THE REFERENCES HERE --- TODO
+      // data[i].ref1 = ref1_raw;
+      // data[i].ref2 = ref2_raw;
+
       data[i].out1 = 0.0f;
       data[i].out2 = 0.0f;
       // TODO No serial.writeBytes() here — intentional. maybe send 0's if bugs
@@ -202,49 +208,49 @@ std::vector<Sample> runControlLoop(serialib &serial, int len) {
       buffer_write[2] = static_cast<uint8_t>(out2d);
       serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
     }
-
-    buffer_write[0] = FLAG_STARTSTOP;
-    buffer_write[1] = 1;
-    buffer_write[2] = 1;
-    serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
-
-    return data;
-  };
-
-  int main(int argc, char *argv[]) {
-    const int len = askSimulationLength();
-
-    serialib serial;
-    if (!openConnection(serial))
-      return 1;
-
-    const std::vector<Sample> data = runControlLoop(serial, len);
-
-    // Close the serial device
-    sleep(1);
-    serial.closeDevice();
-    std::cout << "Done!";
-
-    // Save measurements to desired location
-    std::string filepath;
-    if (argc > 1) {
-      filepath = argv[1];
-    } else {
-      const std::filesystem::path exe_dir =
-          std::filesystem::canonical("/proc/self/exe").parent_path();
-      const std::filesystem::path data_dir = exe_dir.parent_path() / "data";
-      std::filesystem::create_directories(data_dir);
-
-      const auto now = std::chrono::system_clock::now();
-      const std::time_t t = std::chrono::system_clock::to_time_t(now);
-      char timestamp[20];
-      std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M",
-                    std::localtime(&t));
-      filepath =
-          (data_dir / (std::string("output_") + timestamp + ".csv")).string();
-    }
-
-    saveToFile(data, filepath);
-    std::cout << "Data saved to: " << filepath << "\n";
-    return 0;
   }
+  buffer_write[0] = FLAG_STARTSTOP;
+  buffer_write[1] = 1;
+  buffer_write[2] = 1;
+  serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
+
+  return data;
+}
+
+int main(int argc, char *argv[]) {
+  const int len = askSimulationLength();
+
+  serialib serial;
+  if (!openConnection(serial))
+    return 1;
+
+  const std::vector<Sample> data = runControlLoop(serial, len);
+
+  // Close the serial device
+  sleep(1);
+  serial.closeDevice();
+  std::cout << "Done!";
+
+  // Save measurements to desired location
+  std::string filepath;
+  if (argc > 1) {
+    filepath = argv[1];
+  } else {
+    const std::filesystem::path exe_dir =
+        std::filesystem::canonical("/proc/self/exe").parent_path();
+    const std::filesystem::path data_dir = exe_dir.parent_path() / "data";
+    std::filesystem::create_directories(data_dir);
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    char timestamp[20];
+    std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M",
+                  std::localtime(&t));
+    filepath =
+        (data_dir / (std::string("output_") + timestamp + ".csv")).string();
+  }
+
+  saveToFile(data, filepath);
+  std::cout << "Data saved to: " << filepath << "\n";
+  return 0;
+}
