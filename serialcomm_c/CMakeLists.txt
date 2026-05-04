@@ -13,6 +13,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # This generates the compile_commands.json file
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_BUILD_TYPE Debug)
+
 add_executable(flexbot_app
     src/serialcomm.cpp
     src/serialib.cpp 

@@ -46,6 +46,10 @@ constexpr int OUT_NEUTRAL_2 = 125;
 constexpr int OUT_MAX = 255;
 constexpr int OUT_MIN = 0;
 
+// HIGH_LEVEL/HYBRID position references (radians) used in u = -K(x - x_ref)
+constexpr float REF_POS1 = 0.0F;
+constexpr float REF_POS2 = 0.0F;
+
 constexpr float DAC_SCALE = 256.0F / 3.3F; // voltage → uint8 scaling
 constexpr int SERIAL_TIMEOUT_MS = 2000;    // readBytes timeout
 
