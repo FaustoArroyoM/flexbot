@@ -8,7 +8,7 @@
 // HYBRID     : ESP32 fast PI tracks reference sent by PC
 // =====================================================================
 enum class CtrlMode { HIGH_LEVEL, LOW_LEVEL, HYBRID };
-constexpr CtrlMode CTRL_MODE = CtrlMode::HYBRID;
+constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;
 
 
 // =====================================================================
@@ -36,7 +36,8 @@ constexpr const char *SERIAL_PORT = "COM3";
 constexpr const char *SERIAL_PORT = "/dev/ttyUSB0";
 #endif
 
-constexpr unsigned int BAUD_RATE = 115200;
+// constexpr unsigned int BAUD_RATE = 921600; //   115200
+constexpr unsigned int BAUD_RATE = 115200; //   
 
 // =====================================================================
 // PROTOCOL FLAGS --- must match ESP32 flexbot_firmware/src/com.cpp exactly!
@@ -45,6 +46,7 @@ constexpr unsigned int BAUD_RATE = 115200;
 constexpr uint8_t FLAG_STARTSTOP = 120;
 constexpr uint8_t FLAG_CONTROL = 99;
 constexpr uint8_t FLAG_SEND = 109;
+constexpr uint8_t FLAG_DUMP = 77;  // request end-of-run timing dump
 
 constexpr int PACKET_WRITE_SIZE = 3; // PC→ESP32: flag + two outputs
 constexpr int PACKET_READ_SIZE = 16; // ESP32→PC: pos, strain, time
@@ -100,4 +102,17 @@ struct Sample {
   float out2 = 0.0f;
   float ref1 = 0.0f;   // HYBRID: decoded position reference sent to ESP32 (rad). 0 for other modes.
   float ref2 = 0.0f;   // HYBRID: decoded position reference sent to ESP32 (rad). 0 for other modes.
+  // PC-side latency diagnostics (µs, measured with steady_clock).
+  int32_t pc_loop_us = 0;  // cadence: time from prev readBytes return to this one (0 on first sample)
+  int32_t pc_proc_us = 0;  // processing: readBytes return → writeBytes return (K*x compute + serial write)
+  int32_t pc_wait_us = 0;  // blocking: how long readBytes spent waiting for ESP32 packet
+  // ESP32-side per-packet timing (µs), buffered on ESP32 and merged after run via FLAG_DUMP.
+  int32_t esp_comp_us = 0; // cycle() execution time at the moment this packet was transmitted
+  int32_t esp_comm_us = 0; // serialcomm() previous-iteration execution time
 };
+
+// Dump framing bytes to sync the PC reader if stale sensor packets are still in-flight.
+constexpr uint8_t DUMP_MAGIC_0 = 0xA5;
+constexpr uint8_t DUMP_MAGIC_1 = 0x5A;
+constexpr uint8_t DUMP_MAGIC_2 = 0xC3;
+constexpr uint8_t DUMP_MAGIC_3 = 0x3C;

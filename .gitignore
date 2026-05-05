@@ -3,6 +3,7 @@ serialcomm_c/build/
 serialcomm_c/compile_commands.json
 build/
 
+# TODO temporally disabled
 *.csv
 
 # platfomIO code
