@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <cmath>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -61,13 +62,16 @@ void saveToFile(const std::vector<Sample> &data, const std::string &filename,
   file << "# stopped: " << stop_reason << "\n";
 
   // CSV header row
+  // out1/out2: K*x voltage output from PC.
+  // ref1/ref2: HYBRID only — decoded position reference sent to ESP32 (rad).
   file << "pos1,pos2,strain1,strain2,"
-       << "strain1div,strain2div,cycle_time_ms,out1,out2\n";
+       << "strain1div,strain2div,cycle_time_ms,out1,out2,ref1,ref2\n";
 
   for (const Sample &s : data) {
     file << s.pos1 << "," << s.pos2 << "," << s.strain1 << "," << s.strain2
          << "," << s.strain1div << "," << s.strain2div << "," << s.cycle_time_ms
-         << "," << s.out1 << "," << s.out2 << "\n";
+         << "," << s.out1 << "," << s.out2 << "," << s.ref1 << "," << s.ref2
+         << "\n";
   }
 }
 
@@ -76,6 +80,18 @@ float extractField(const uint8_t *buf, int offset, float scale) {
   return static_cast<float>(
              static_cast<int16_t>(buf[offset] | buf[offset + 1] << 8)) /
          scale;
+}
+
+uint8_t encodeHybridRef(float ref, float ref_max) {
+  const float r = std::clamp(ref, -ref_max, ref_max);
+  const float norm = (ref_max > 0.0F) ? (r / ref_max) : 0.0F;
+  const int byte = static_cast<int>(std::lround(127.0F + 127.0F * norm));
+  return static_cast<uint8_t>(std::clamp(byte, 0, 255));
+}
+
+float decodeHybridRef(uint8_t byte, float ref_max) {
+  const float norm = (static_cast<float>(byte) - 127.0F) / 127.0F;
+  return norm * ref_max;
 }
 
 // =============================================================================
@@ -96,6 +112,8 @@ std::vector<Sample> runControlLoop(serialib &serial, int len,
 
   unsigned char buffer_write[PACKET_WRITE_SIZE] = {0};
   unsigned char buffer_read[PACKET_READ_SIZE] = {0};
+  float hybrid_ref1_prev = 0.0F;
+  float hybrid_ref2_prev = 0.0F;
 
   // Send START. ESP32 stops zeroing the encoder once stop=false.
   buffer_write[0] = FLAG_STARTSTOP;
@@ -170,30 +188,73 @@ std::vector<Sample> runControlLoop(serialib &serial, int len,
       // No writeBytes — ESP32 runs PI autonomously.
 
     } else if constexpr (CTRL_MODE == CtrlMode::HYBRID) {
+      // --- HYBRID outer loop (PC, ~200 Hz) ---
+      //
+      // Cascade control: this loop computes a *position reference* for the
+      // ESP32 inner PI loop rather than a direct DAC voltage.
+      //
+      //  Step 1: K*x  — same gain matrix as HIGH_LEVEL, scaled by
+      //          HYBRID_OUTER_K_SCALE (0→disable outer loop, 1→full K*x).
+      //          The result (out1_raw) is a voltage-like signal but we
+      //          reinterpret its magnitude as a position offset (rad).
+      //          Tuning note: start with HYBRID_OUTER_K_SCALE ≤ 0.1.
+      //
+      //  Step 2: Clamp to ±HYBRID_REF_MAX (rad) — keeps reference inside
+      //          the physical range the joint can actually reach.
+      //          MUST match HYBRID_REF_MAX_1/2 in the ESP32 config.h.
+      //
+      //  Step 3: EMA smooth — ref = α*new + (1-α)*prev. Prevents the inner
+      //          PI from chasing a jittery reference at 200 Hz bandwidth.
+      //          HYBRID_REF_SMOOTH_ALPHA: 1.0 = no smoothing, ~0.3 = slow.
+      //
+      //  Step 4: Encode to byte — ref_byte = 127 + round(127 * ref/REF_MAX).
+      //          127 = neutral (zero position reference).
+      //          Sent as FLAG_CONTROL + ref1_byte + ref2_byte (3 bytes).
+      //
+      // HYBRID_FORCE_NEUTRAL_REF=true forces ref=0 at all times: ESP32 inner
+      // PI then acts as a pure LOW_LEVEL stabiliser. Use this to verify the
+      // inner loop works before enabling the outer loop.
+
       const std::array<float, 6> x = {s.pos1,    s.pos2,       s.strain1,
                                       s.strain2, s.strain1div, s.strain2div};
 
-      //  const std::array<float, 6> x = {s.pos1 - REF_POS1, s.pos2 - REF_POS2,
-      //                                   s.strain1,         s.strain2,
-      //                                   s.strain1div,      s.strain2div};
-
+      // Step 1: outer K*x
       float out1_raw = 0.0f, out2_raw = 0.0f;
       for (int k = 0; k < 6; k++) {
-        out1_raw += K[0][k] * x[k];
-        out2_raw += K[1][k] * x[k];
+        out1_raw += (HYBRID_OUTER_K_SCALE * K[0][k]) * x[k];
+        out2_raw += (HYBRID_OUTER_K_SCALE * K[1][k]) * x[k];
       }
-      s.out1 = out1_raw;
+      s.out1 = out1_raw;  // log raw K*x for diagnosis
       s.out2 = out2_raw;
 
-      int out1d = static_cast<int>(DAC_SCALE * out1_raw + OUT_NEUTRAL_1);
-      int out2d = static_cast<int>(DAC_SCALE * out2_raw + OUT_NEUTRAL_2);
-      out1d = std::clamp(out1d, OUT_MIN, OUT_MAX);
-      out2d = std::clamp(out2d, OUT_MIN, OUT_MAX);
+      // Step 2: clamp to physical reference range
+      float ref1 = std::clamp(out1_raw, -HYBRID_REF_MAX_1, HYBRID_REF_MAX_1);
+      float ref2 = std::clamp(out2_raw, -HYBRID_REF_MAX_2, HYBRID_REF_MAX_2);
 
+      // Step 3: EMA smoothing
+      ref1 = HYBRID_REF_SMOOTH_ALPHA * ref1 +
+             (1.0F - HYBRID_REF_SMOOTH_ALPHA) * hybrid_ref1_prev;
+      ref2 = HYBRID_REF_SMOOTH_ALPHA * ref2 +
+             (1.0F - HYBRID_REF_SMOOTH_ALPHA) * hybrid_ref2_prev;
+      hybrid_ref1_prev = ref1;
+      hybrid_ref2_prev = ref2;
+      if (HYBRID_FORCE_NEUTRAL_REF) {
+        ref1 = 0.0F;
+        ref2 = 0.0F;
+      }
+
+      // Step 4: encode and transmit
+      const uint8_t ref1b = encodeHybridRef(ref1, HYBRID_REF_MAX_1);
+      const uint8_t ref2b = encodeHybridRef(ref2, HYBRID_REF_MAX_2);
       buffer_write[0] = FLAG_CONTROL;
-      buffer_write[1] = static_cast<uint8_t>(out1d);
-      buffer_write[2] = static_cast<uint8_t>(out2d);
+      buffer_write[1] = ref1b;
+      buffer_write[2] = ref2b;
       serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
+
+      // Decode back to radians for logging (round-trip through byte encoding).
+      // s.out1/out2 already hold the raw K*x voltage.
+      s.ref1 = decodeHybridRef(ref1b, HYBRID_REF_MAX_1);
+      s.ref2 = decodeHybridRef(ref2b, HYBRID_REF_MAX_2);
     }
 
     data.push_back(s);

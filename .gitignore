@@ -63,9 +63,4 @@ S
 # debug information files
 *.dwo
 
-#llm
-CLAUDE.md
-docs/architecture.md
-docs/open-issues.md
-docs/change-log.md
 
