@@ -24,6 +24,7 @@ void sigint_handler(int /*signum*/) {
   stop_requested.store(true, std::memory_order_relaxed);
 }
 
+// Prompts the user for the number of samples and returns it.
 int askSimulationLength() {
   int len = 0;
   std::cout << "Give simulation length as an integer: ";
@@ -31,6 +32,8 @@ int askSimulationLength() {
   return len;
 }
 
+// Opens the serial port and flushes stale bytes from the RX buffer.
+// Returns false if the port cannot be opened.
 bool openConnection(serialib &serial) {
   char err = serial.openDevice(SERIAL_PORT, BAUD_RATE);
   if (err != 1) {
@@ -44,6 +47,9 @@ bool openConnection(serialib &serial) {
   return true;
 }
 
+// Writes collected samples to a CSV file. Metadata (CTRL_MODE, K matrix,
+// sample count, stop reason) is written as '#'-prefixed comment lines so
+// pandas can skip them with read_csv(..., comment='#').
 void saveToFile(const std::vector<Sample> &data, const std::string &filename,
                 const std::string &stop_reason) {
   std::ofstream file(filename);
@@ -80,11 +86,16 @@ void saveToFile(const std::vector<Sample> &data, const std::string &filename,
   }
 }
 
-// Helper for runControlLoop. Decodes one int16 from two consecutive bytes.
+// Reads two consecutive bytes from buf[offset..offset+1] as a little-endian
+// int16 and divides by scale to recover the original float (e.g. scale=100
+// for pos, scale=1000 for strain).
 float extractField(const uint8_t *buf, int offset, float scale) {
   return static_cast<float>(static_cast<int16_t>(buf[offset] | buf[offset + 1] << 8)) / scale;
 }
 
+// Encodes a position reference (rad) into a byte centered at 127.
+// ref=0 → 127, ref=+ref_max → 254, ref=-ref_max → 0.
+// The ESP32 decodes with the same ref_max (must match HYBRID_REF_MAX_1/2).
 uint8_t encodeHybridRef(float ref, float ref_max) {
   const float r = std::clamp(ref, -ref_max, ref_max);
   const float norm = (ref_max > 0.0F) ? (r / ref_max) : 0.0F;
@@ -92,11 +103,17 @@ uint8_t encodeHybridRef(float ref, float ref_max) {
   return static_cast<uint8_t>(std::clamp(byte, 0, 255));
 }
 
+// Reverses encodeHybridRef: byte 127 → 0 rad, byte 0 → -ref_max, byte 254 → +ref_max.
+// Used on the PC side to log what reference was actually transmitted.
 float decodeHybridRef(uint8_t byte, float ref_max) {
   const float norm = (static_cast<float>(byte) - 127.0F) / 127.0F;
   return norm * ref_max;
 }
 
+// Synchronises to the 4-byte dump magic (A5 5A C3 3C) in the serial stream
+// and reads the following uint16 sample count into `count`. Returns false on
+// timeout. The magic scan tolerates any stale sensor bytes that arrive after
+// STOP, which would otherwise be misread as the count value.
 bool readTimingDumpCount(serialib &serial, uint16_t &count) {
   using Clock = std::chrono::steady_clock;
   constexpr auto kSyncWindow = std::chrono::milliseconds(SERIAL_TIMEOUT_MS);
@@ -374,6 +391,8 @@ std::vector<Sample> runControlLoop(serialib &serial, int len, std::string &stop_
   return data;
 }
 
+// Entry point: install SIGINT handler, open serial, run control loop, save CSV.
+// An optional CLI argument overrides the default timestamped output path.
 int main(int argc, char *argv[]) {
   std::signal(SIGINT, sigint_handler);
 

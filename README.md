@@ -1,27 +1,53 @@
 # FlexBot — PC Software (`serialcomm_c`)
 
-PC-side control and data logging software for the FlexBot 2-DOF robot arm.  
-Communicates with the ESP32 firmware over USB serial. Written in **C++17**, built with **CMake**, linted with **clangd**.
+PC-side control and data-logging software for the FlexBot 2-DOF robot arm.
+Communicates with the ESP32 firmware over USB serial. Written in **C++17**, built with **CMake**.
 
 ---
 
-## Project Structure
+## Two-Repo System
+
+FlexBot is split across two repositories that must stay in sync:
+
+| Repo | What it is |
+|---|---|
+| **`flexbot/`** (this repo) | PC software: runs the control loop, logs sensor data to CSV |
+| **`flexbot_firmware/`** | ESP32 firmware: reads sensors, drives motors, runs inner-loop control |
+
+The two repos share a compile-time constant `CTRL_MODE` and several protocol constants. **Both must be set to the same values and recompiled/reflashed after any change.** The firmware README covers ESP32 IDE setup (VS Code + PlatformIO).
+
+---
+
+## System Overview
+
+FlexBot is a two-joint robot arm. The ESP32 reads joint encoders and strain gauges at 1 kHz and communicates with the PC over USB serial at 921600 baud. The PC runs the experiment, sends control commands, and logs all sensor data to CSV.
+
+Three control architectures are available, selected at compile time:
+
+| Mode | Who computes the output | PC role | ESP32 role |
+|---|---|---|---|
+| `HIGH_LEVEL` | PC computes full state-feedback K·x → sends a DAC byte each cycle | Closed-loop controller at ~200 Hz | Apply received DAC byte directly |
+| `LOW_LEVEL` | ESP32 runs a PI controller autonomously at 1 kHz | Passive data logger — send start/stop only | Full PI control, independent of USB |
+| `HYBRID` | ESP32 PI tracks a position reference sent by the PC | Outer-loop reference generator at ~200 Hz | Inner PI at 1 kHz tracking the PC reference |
+
+All mode branching uses `if constexpr` — the compiler removes unused code paths entirely.
+
+---
+
+## Repository Layout
 
 ```
-serialcomm_c/
-├── include/
-│   ├── config.h        ← All tuning parameters and control mode switch
-│   └── serialib.h      ← Third-party serial library (do not modify)
-├── src/
-│   ├── serialcomm.cpp  ← Main program: control loop, logging, serial I/O
-│   └── serialib.cpp    ← Third-party serial library (do not modify)
-├── CMakeLists.txt
-└── README.md
-```
-
-Output data is saved to:
-```
-flexbot/data/output_YYYYMMDD_HHMM.csv
+flexbot/
+├── serialcomm_c/
+│   ├── include/
+│   │   ├── config.h       ← All tuning parameters and the CTRL_MODE switch
+│   │   └── serialib.h     ← Third-party serial library (do not modify)
+│   ├── src/
+│   │   ├── serialcomm.cpp ← Main program: control loop, CSV logging, serial I/O
+│   │   └── serialib.cpp   ← Third-party serial library (do not modify)
+│   └── CMakeLists.txt
+├── build/                 ← CMake output (generated, not committed)
+└── data/                  ← CSV experiment logs
 ```
 
 ---
@@ -39,149 +65,260 @@ sudo apt install build-essential cmake clangd
 
 - [CMake](https://cmake.org/download/) (add to PATH during install)
 - [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++"
-- [LLVM/clangd](https://github.com/clangd/clangd/releases) (optional, for VS Code IntelliSense)
+- [LLVM/clangd](https://github.com/clangd/clangd/releases) (optional, for IntelliSense)
 
 ---
 
-## Build & Run
-
-### Linux (Ubuntu)
+## Build
 
 ```bash
-cd ~/Desktop/flexbot
-mkdir -p build && cd build
-cmake ../serialcomm_c
-make -j$(nproc)
-./serialcomm        # uses default output path under ../data/
-# or with explicit output path:
-./serialcomm /path/to/output.csv
-```
+# From the repo root
+cmake -S serialcomm_c -B build
+cmake --build build
 
-### Windows
-
-```powershell
-cd C:\path\to\flexbot
-mkdir build && cd build
-cmake ..\serialcomm_c -G "Visual Studio 17 2022"
-cmake --build . --config Release
-.\Release\serialcomm.exe
+# The binary is at:
+./build/serialcomm
 ```
 
 ---
 
-## Serial Port Configuration
+## Serial Port Setup
 
-The serial port is auto-selected by platform in `include/config.h`:
+The port is configured in `serialcomm_c/include/config.h`:
 
 ```cpp
 #ifdef _WIN32
-    constexpr const char* SERIAL_PORT = "COM3";   // ← change to your port
+    constexpr const char* SERIAL_PORT = "COM3";         // ← change to your port
 #else
-    constexpr const char* SERIAL_PORT = "/dev/ttyUSB0";  // ← change if needed
+    constexpr const char* SERIAL_PORT = "/dev/ttyUSB0"; // ← change if needed
 #endif
 ```
 
-**Linux:** Check which port the ESP32 appears on:
+**Linux — check your port:**
 ```bash
 ls /dev/ttyUSB*
 # or watch for it when you plug in:
 dmesg | tail -n 10
 ```
 
-**Linux USB permissions** (required once per user):
+**Linux — USB permissions (required once per user):**
 ```bash
 sudo usermod -aG dialout $USER
-# then log out and back in
+# Log out and back in for this to take effect.
 ```
-
-**Windows:** Open Device Manager → Ports (COM & LPT) to find the COM number.
 
 ---
 
-## Changing the Control Mode
+## Running an Experiment
 
-Open `include/config.h` and change **one line**, then recompile:
+1. Flash the ESP32 firmware (see the firmware README).
+2. Build the PC software (see Build above).
+3. Run the binary:
+   ```bash
+   ./build/serialcomm
+   # or save to an explicit path:
+   ./build/serialcomm /path/to/output.csv
+   ```
+4. Enter the number of samples when prompted. The run starts immediately.
+5. Press `Ctrl-C` at any time for a graceful abort — all collected samples are saved.
+6. The CSV is written to `data/output_<timestamp>.csv` by default.
 
-```cpp
-constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;  // ← change this
-```
-
-| Mode | What the PC does | What the ESP32 does |
-|---|---|---|
-| `HIGH_LEVEL` | Computes full K·x, sends DAC value each cycle | Applies output directly to DAC — no local control |
-| `LOW_LEVEL` | Passive logger only — reads and saves data | Runs PI controller autonomously at 1 ms |
-| `HYBRID` | Computes K·x, sends as setpoint each cycle | Runs PI that tracks the PC's setpoint at 1 ms |
-
-> **Important:** You must set the **same mode** in both `serialcomm_c/include/config.h` **and** `flexbot_firmware/include/config.h`, then recompile and reflash both.
+**Before starting a run:** hold the arm at the pose you want to treat as the neutral (zero) position. The ESP32 continuously zeros its encoders while stopped, so `pos1 = pos2 = 0` is anchored to the held pose when START fires.
 
 ---
 
-## Tuning the Gain Matrix (HIGH_LEVEL / HYBRID)
+## Control Modes
 
-In `include/config.h`:
+The mode is set in **both** `config.h` files and must be identical. After any change, recompile the PC software **and** reflash the ESP32.
 
 ```cpp
-// Gain Matrix K [2 motors][6 states]
-// Each row: { K_pos, K_vel, K_strain, K_straindot, 0, 0 }
+// serialcomm_c/include/config.h  AND  flexbot_firmware/include/config.h
+constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;  // ← change this line in both files
+```
+
+---
+
+### HIGH_LEVEL — PC full state-feedback controller
+
+The PC computes `u = K · x` every cycle using the received sensor state, converts the result to a DAC byte, and sends it to the ESP32. The ESP32 applies that byte directly to the motor DAC — it runs no local control computation.
+
+**Data flow:**
+```
+ESP32 → (16-byte sensor packet) → PC
+PC: u = K·x → convert to DAC byte → send FLAG_CONTROL + out1d + out2d
+ESP32 → applies DAC byte → (next sensor packet) → PC → ...
+```
+
+**To use:**
+1. Set `CTRL_MODE = CtrlMode::HIGH_LEVEL` in both `config.h` files.
+2. Tune the gain matrix `K` in `serialcomm_c/include/config.h` (see Gain Matrix section below).
+3. Recompile PC software and reflash ESP32.
+4. Hold the arm at the desired neutral pose, then start the run.
+
+**CSV columns:** `out1` and `out2` are the raw K·x voltages (before DAC conversion). `ref1` and `ref2` are always 0.
+
+---
+
+### LOW_LEVEL — On-ESP32 PI controller, PC logs only
+
+The ESP32 runs a PI position controller at 1 kHz independently of the PC. The PC only sends start/stop commands and logs sensor data — it never sends control outputs. Control quality is not affected by USB latency.
+
+**Data flow:**
+```
+ESP32 → (16-byte sensor packet, autonomous stream) → PC logs
+ESP32: PI computes → drives motor at 1 kHz, regardless of PC timing
+PC: START/STOP only
+```
+
+**To use:**
+1. Set `CTRL_MODE = CtrlMode::LOW_LEVEL` in both `config.h` files.
+2. Tune the PI gains in `flexbot_firmware/include/config.h`:
+   ```cpp
+   constexpr float K_POS1      = 2.0F;   // proportional gain, motor 1
+   constexpr float K_POSINT1   = 0.1F;   // integral gain, motor 1
+   constexpr float K_STRAIN1   = -0.1F;  // strain proportional
+   constexpr float K_STRAINDIV1= -0.01F; // strain derivative
+   // same pattern for motor 2 (K_POS2, K_POSINT2, ...)
+   ```
+3. Recompile PC software and reflash ESP32.
+4. Hold the arm at the desired neutral pose, then start the run.
+
+**CSV columns:** `out1` and `out2` are always 0 (PC sends no outputs in this mode). `ref1` and `ref2` are always 0.
+
+---
+
+### HYBRID — Cascade control (PC outer loop + ESP32 inner loop)
+
+The PC outer loop runs at ~200 Hz and computes a **position reference** from K·x. The ESP32 inner PI loop runs at 1 kHz and tracks that reference. This separates the slow USB update rate from the fast motor control rate.
+
+**Data flow:**
+```
+PC outer loop (~200 Hz)                   ESP32 inner loop (1 kHz)
+─────────────────────────────             ──────────────────────────────
+Read sensor packet from ESP32             Read encoders + strain gauges
+Compute out = HYBRID_OUTER_K_SCALE * K*x  Decode byte → ref_rad:
+Clamp to ±HYBRID_REF_MAX (rad)              ref = ((byte-127)/127) * HYBRID_REF_MAX
+EMA smooth: ref = α*new + (1-α)*prev      err = measured_pos - ref_rad
+Encode: byte = 127 + round(127*ref/MAX)   voltage = PI(err, strain, strain_dot)
+Send FLAG_CONTROL + ref1_byte + ref2_byte DAC_byte = (256/3.3)*voltage + OUT_NEUTRAL
+                                          clamp to [0, 255], write to DAC
+```
+
+**HYBRID tuning knobs** in `serialcomm_c/include/config.h`:
+
+| Knob | Default | Effect |
+|------|---------|--------|
+| `HYBRID_OUTER_K_SCALE` | 0.10 | Scales the outer K·x contribution. Set to 0 for inner PI only (baseline). Start ≤ 0.10. |
+| `HYBRID_REF_MAX_1 / _2` | 0.2 rad | Maximum position reference magnitude. **Must match** `HYBRID_REF_MAX_1/2` in the ESP32 `config.h`. A mismatch amplifies the reference — use identical values in both files. |
+| `HYBRID_REF_SMOOTH_ALPHA` | 0.6 | EMA smoothing on the reference. 1.0 = no smoothing, ~0.3 = very slow. |
+| `HYBRID_FORCE_NEUTRAL_REF` | false | Forces ref=0 regardless of K·x — inner PI acts as a pure LOW_LEVEL stabiliser. Use this to verify the inner loop before enabling the outer loop. |
+
+**Recommended first-run sequence:**
+1. Set `HYBRID_FORCE_NEUTRAL_REF = true`. Verify the arm stabilises (inner PI baseline).
+2. Set `HYBRID_FORCE_NEUTRAL_REF = false`, `HYBRID_OUTER_K_SCALE = 0.05`. Verify no oscillation.
+3. Increase `HYBRID_OUTER_K_SCALE` gradually until the onset of oscillation, then back off.
+
+**CSV columns:** `out1`/`out2` are the raw K·x voltages (before clamp). `ref1`/`ref2` are the position references actually sent to the ESP32 (rad, decoded from the transmitted byte).
+
+---
+
+## Gain Matrix (HIGH_LEVEL and HYBRID outer loop)
+
+In `serialcomm_c/include/config.h`:
+
+```cpp
+// K [2 motors][6 states]
+// State vector: [pos1, pos2, strain1, strain2, strain1_dot, strain2_dot]
+// Each row: K*x gives a voltage for that motor.
 constexpr float K[2][6] = {
     {-2.0F, 0.0F, 0.10F, 0.00F, 0.0F, 0.0F},  // motor 1
     { 0.0F,-3.0F, 0.00F, 0.05F, 0.0F, 0.0F}   // motor 2
 };
 ```
 
-Change values and recompile. The gain matrix is written as a comment in every CSV output file so you always know which gains produced which data.
+The gain matrix is written as a comment header in every CSV file.
 
 ---
 
-## Serial Protocol
+## ENABLE_TIMING Flag
 
-All values must match the ESP32 firmware exactly (they are defined identically in both `config.h` files).
+`ENABLE_TIMING` in both `config.h` files controls whether per-packet timing data is collected during a run.
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `BAUD_RATE` | 115200 | Serial baud rate |
-| `FLAG_STARTSTOP` | 120 | Start (`byte[1]=0`) or Stop (`byte[1]=1`) command |
-| `FLAG_CONTROL` | 99 | PC → ESP32 control/reference packet |
-| `FLAG_SEND` | 109 | ESP32 → PC sensor data packet |
-| `PACKET_WRITE_SIZE` | 3 bytes | PC → ESP32: `[flag, out1, out2]` |
-| `PACKET_READ_SIZE` | 16 bytes | ESP32 → PC: `[flag, pad, pos1×2, pos2×2, s1×2, s2×2, s1d×2, s2d×2, time×2]` |
+```cpp
+constexpr bool ENABLE_TIMING = true;   // enable timing columns in CSV
+// constexpr bool ENABLE_TIMING = false; // disable for production runs
+```
+
+**Must be identical in both `config.h` files.** When `false`, there is zero overhead: no extra buffers on the ESP32, no FLAG_DUMP exchange after the run, and the five timing columns are absent from the CSV.
+
+When `true`, the ESP32 buffers the execution time of `cycle()` and `serialcomm()` for every packet during the run. After the PC sends STOP, it requests the buffer via a FLAG_DUMP packet. The ESP32 sends back all buffered values in one block, and the PC merges them row-by-row into the CSV.
+
+### What the timing columns mean
+
+| Column | Measured by | What it measures |
+|--------|-------------|-----------------|
+| `pc_wait_us` | PC | How long `readBytes` blocked waiting for the next ESP32 sensor packet (µs) |
+| `pc_proc_us` | PC | Time from `readBytes` return to end of iteration — K·x compute + serial write (µs) |
+| `pc_loop_us` | PC | Full iteration cadence — previous `readBytes` return to this one (µs). 0 on sample 0. |
+| `esp_comp_us` | ESP32 | `cycle()` execution time at the moment this packet was transmitted (µs) |
+| `esp_comm_us` | ESP32 | `serialcomm()` execution time for the previous iteration (µs) |
+
+**How to interpret them:**
+
+- `pc_loop_us ≈ 2000 µs` is the expected value at 921600 baud with `COMM_TIME_MS=1`. If you see ~10000 µs, the ESP32 firmware `config.h` still has `COMM_TIME_MS=5` — lower it and reflash.
+- `pc_wait_us` isolates serial read latency. In HIGH_LEVEL this is nearly the full loop time (ESP32 must compute and transmit before PC can read). In LOW_LEVEL/HYBRID the ESP32 streams autonomously so `pc_wait_us` is near zero.
+- `esp_comp_us` max over a run tells you the worst-case `cycle()` execution budget. Must stay well below `CYCLE_TIME_MS × 1000 = 1000 µs`.
+- `esp_comm_us` max tells you the worst-case `serialcomm()` budget. Must stay below `COMM_TIME_MS × 1000 = 1000 µs`.
 
 ---
 
 ## CSV Output Format
 
-Each run produces a timestamped CSV with metadata comment lines:
+Each run produces a timestamped CSV at `data/output_YYYY-MM-DD_HH-MM-SS.csv`.
 
 ```
 # CTRL_MODE: 0
 # K_motor1: -2.0,0.0,0.1,0.0,0.0,0.0
 # K_motor2: 0.0,-3.0,0.0,0.05,0.0,0.0
 # samples: 1000
-pos1,pos2,strain1,strain2,strain1div,strain2div,cycle_time_ms,out1,out2
-0.12,0.08,...
+# stopped: completed
+pos1,pos2,strain1,strain2,strain1div,strain2div,cycle_time_ms,out1,out2,ref1,ref2[,pc_loop_us,pc_proc_us,pc_wait_us,esp_comp_us,esp_comm_us]
 ```
 
-Read in Python, skipping comment lines:
+| Column | Unit | Description |
+|--------|------|-------------|
+| `pos1`, `pos2` | fractional revolutions | Joint angles (encoder counts / resolution) |
+| `strain1`, `strain2` | V | Filtered strain gauge readings |
+| `strain1div`, `strain2div` | V/s | Filtered strain rate |
+| `cycle_time_ms` | ms | ESP32 round-trip time from the previous packet |
+| `out1`, `out2` | V | K·x voltage (HIGH_LEVEL/HYBRID outer loop) or 0 (LOW_LEVEL) |
+| `ref1`, `ref2` | rad | Position reference sent to ESP32 (HYBRID only, else 0) |
+| `pc_loop_us` | µs | Full PC iteration cadence (ENABLE_TIMING only) |
+| `pc_proc_us` | µs | PC compute + write time (ENABLE_TIMING only) |
+| `pc_wait_us` | µs | PC blocking read time (ENABLE_TIMING only) |
+| `esp_comp_us` | µs | ESP32 `cycle()` execution time (ENABLE_TIMING only) |
+| `esp_comm_us` | µs | ESP32 `serialcomm()` execution time (ENABLE_TIMING only) |
+
+**Load in Python:**
 ```python
 import pandas as pd
-df = pd.read_csv("output_20260415_1430.csv", comment='#')
+df = pd.read_csv("data/output_2026-05-06_12-00-00.csv", comment='#')
 ```
 
 ---
 
 ## VS Code Setup (clangd IntelliSense)
 
-1. Install the [clangd extension](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd)
-2. Build once with CMake — this generates `build/compile_commands.json`
+1. Install the [clangd extension](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd).
+2. Build once with CMake — this generates `build/compile_commands.json`.
 3. Add to `.vscode/settings.json`:
-```json
-{
-    "clangd.arguments": [
-        "--compile-commands-dir=${workspaceFolder}/build"
-    ]
-}
-```
-clangd will now provide full type-checking and autocomplete.
+   ```json
+   {
+       "clangd.arguments": [
+           "--compile-commands-dir=${workspaceFolder}/build"
+       ]
+   }
+   ```
 
 ---
 
@@ -189,7 +326,10 @@ clangd will now provide full type-checking and autocomplete.
 
 | Problem | Fix |
 |---|---|
-| `No connection to /dev/ttyUSB0` | Check cable, run `ls /dev/ttyUSB*`, verify permissions (`dialout` group) |
-| `Unexpected packet identifier` | Both repos must have the same `CTRL_MODE`. Reflash ESP32 after changing. |
-| Build fails on Windows with `filesystem` errors | Requires MSVC 19.14+ or GCC 8+. Update Visual Studio Build Tools. |
-| clangd shows errors but build works | Regenerate `compile_commands.json`: delete `build/` and run CMake again. |
+| `No connection to /dev/ttyUSB0` | Check USB cable. Run `ls /dev/ttyUSB*`. Verify `dialout` group membership (`sudo usermod -aG dialout $USER`, then log out). |
+| `Unexpected packet identifier` | Both repos must have the same `CTRL_MODE`. Reflash ESP32 after any change to `config.h`. |
+| Timing dump always reports count mismatch | Ensure `ENABLE_TIMING` is identical in both `config.h` files. |
+| `pc_loop_us` is ~10 000 µs instead of ~2 000 µs | `COMM_TIME_MS` in the ESP32 firmware `config.h` is still 5 — lower it to 1 and reflash. |
+| Arm oscillates immediately in HYBRID | Check that `HYBRID_REF_MAX_1/2` matches in both `config.h` files exactly. A mismatch amplifies the reference by their ratio. |
+| Build fails: `std::filesystem` errors | Requires GCC 8+ or MSVC 19.14+. Update your toolchain. |
+| clangd shows errors but build works | Regenerate `compile_commands.json`: delete `build/` and re-run CMake. |
