@@ -61,23 +61,22 @@ void saveToFile(const std::vector<Sample> &data, const std::string &filename,
   file << "# samples: " << data.size() << "\n";
   file << "# stopped: " << stop_reason << "\n";
 
-  // CSV header row
-  // out1/out2: K*x voltage output from PC.
-  // ref1/ref2: HYBRID only — decoded position reference sent to ESP32 (rad).
-  // pc_loop_us: PC-side cadence (prev readBytes return → this readBytes return), 0 on first sample.
-  // pc_proc_us: PC processing time (readBytes return → writeBytes return, includes K*x + serial write).
-  // pc_wait_us: time readBytes blocked waiting for the ESP32 packet (pure serial read latency).
   file << "pos1,pos2,strain1,strain2,"
-       << "strain1div,strain2div,cycle_time_ms,out1,out2,ref1,ref2,"
-       << "pc_loop_us,pc_proc_us,pc_wait_us,esp_comp_us,esp_comm_us\n";
+       << "strain1div,strain2div,cycle_time_ms,out1,out2,ref1,ref2";
+  if constexpr (ENABLE_TIMING) {
+    file << ",pc_loop_us,pc_proc_us,pc_wait_us,esp_comp_us,esp_comm_us";
+  }
+  file << "\n";
 
   for (const Sample &s : data) {
     file << s.pos1 << "," << s.pos2 << "," << s.strain1 << "," << s.strain2
          << "," << s.strain1div << "," << s.strain2div << "," << s.cycle_time_ms
-         << "," << s.out1 << "," << s.out2 << "," << s.ref1 << "," << s.ref2
-         << "," << s.pc_loop_us << "," << s.pc_proc_us << "," << s.pc_wait_us
-         << "," << s.esp_comp_us << "," << s.esp_comm_us
-         << "\n";
+         << "," << s.out1 << "," << s.out2 << "," << s.ref1 << "," << s.ref2;
+    if constexpr (ENABLE_TIMING) {
+      file << "," << s.pc_loop_us << "," << s.pc_proc_us << "," << s.pc_wait_us
+           << "," << s.esp_comp_us << "," << s.esp_comm_us;
+    }
+    file << "\n";
   }
 }
 
@@ -134,6 +133,8 @@ bool readTimingDumpCount(serialib &serial, uint16_t &count) {
   return false;
 }
 
+
+
 // =============================================================================
 // runControlLoop — depends on CTRL_MODE (compile-time constant)
 //
@@ -187,8 +188,10 @@ std::vector<Sample> runControlLoop(serialib &serial, int len, std::string &stop_
     }
 
     Sample s;
-    s.pc_wait_us = static_cast<int32_t>(std::chrono::duration_cast<us>(t_recv - t_wait_start).count());
-    s.pc_loop_us = (i == 0) ? 0 : static_cast<int32_t>(std::chrono::duration_cast<us>(t_recv - t_prev_recv).count());
+    if constexpr (ENABLE_TIMING) {
+      s.pc_wait_us = static_cast<int32_t>(std::chrono::duration_cast<us>(t_recv - t_wait_start).count());
+      s.pc_loop_us = (i == 0) ? 0 : static_cast<int32_t>(std::chrono::duration_cast<us>(t_recv - t_prev_recv).count());
+    }
 
     s.pos1 = extractField(buffer_read, 2, 100.0F);
     s.pos2 = extractField(buffer_read, 4, 100.0F);
@@ -310,14 +313,16 @@ std::vector<Sample> runControlLoop(serialib &serial, int len, std::string &stop_
       buffer_write[2] = ref2b;
       serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
 
-      // Decode back to radians for logging (round-trip through byte encoding).
+      // Decode back to radians for logging
       // s.out1/out2 already hold the raw K*x voltage.
       s.ref1 = decodeHybridRef(ref1b, HYBRID_REF_MAX_1);
       s.ref2 = decodeHybridRef(ref2b, HYBRID_REF_MAX_2);
     }
 
-    s.pc_proc_us = static_cast<int32_t>(std::chrono::duration_cast<us>(Clock::now() - t_recv).count());
-    t_prev_recv = t_recv;
+    if constexpr (ENABLE_TIMING) {
+      s.pc_proc_us = static_cast<int32_t>(std::chrono::duration_cast<us>(Clock::now() - t_recv).count());
+      t_prev_recv = t_recv;
+    }
     data.push_back(s);
   }
 
@@ -327,40 +332,43 @@ std::vector<Sample> runControlLoop(serialib &serial, int len, std::string &stop_
   buffer_write[2] = 1;
   serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
 
-  // Request the ESP32 timing dump and merge into `data` row-for-row.
-  // Wire format: uint16 count + count × (int16 comp_us, int16 comm_us).
-  // Drain any unread bytes first so we don't parse stale sensor packets.
-  serial.flushReceiver();
-  buffer_write[0] = FLAG_DUMP;
-  buffer_write[1] = 0;
-  buffer_write[2] = 0;
-  serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
+  if constexpr (ENABLE_TIMING) {
+    // Request the ESP32 timing dump and merge into `data` row-for-row.
+    // Drain any unread bytes first so we don't parse stale sensor packets.
+    serial.flushReceiver();
+    buffer_write[0] = FLAG_DUMP;
+    buffer_write[1] = 0;
+    buffer_write[2] = 0;
+    serial.writeBytes(buffer_write, PACKET_WRITE_SIZE);
 
-  uint16_t count = 0;
-  if (readTimingDumpCount(serial, count)) {
-    if (count > 0) {
-      std::vector<uint8_t> dump(static_cast<size_t>(count) * 4);
-      const int got = serial.readBytes(dump.data(), static_cast<unsigned int>(dump.size()), SERIAL_TIMEOUT_MS);
-      if (got == static_cast<int>(dump.size())) {
-        const size_t n_merge = std::min<size_t>(count, data.size());
-        for (size_t i = 0; i < n_merge; i++) {
-          const int16_t c1 = static_cast<int16_t>(dump[i*4] | (dump[i*4+1] << 8));
-          const int16_t c2 = static_cast<int16_t>(dump[i*4+2] | (dump[i*4+3] << 8));
-          data[i].esp_comp_us = c1;
-          data[i].esp_comm_us = c2;
+    uint16_t count = 0;
+    if (readTimingDumpCount(serial, count)) {
+      if (count > 0) {
+        std::vector<uint8_t> dump(static_cast<size_t>(count) * 4);
+        const int got = serial.readBytes(dump.data(), static_cast<unsigned int>(dump.size()), SERIAL_TIMEOUT_MS);
+        if (got == static_cast<int>(dump.size())) {
+          const size_t n_merge = std::min<size_t>(count, data.size());
+          for (size_t i = 0; i < n_merge; i++) {
+            const int16_t c1 = static_cast<int16_t>(dump[i*4] | (dump[i*4+1] << 8));
+            const int16_t c2 = static_cast<int16_t>(dump[i*4+2] | (dump[i*4+3] << 8));
+            data[i].esp_comp_us = c1;
+            data[i].esp_comm_us = c2;
+          }
+          // count == data.size()+1 is expected: the ESP32 fires one extra transmit
+          // between the PC sending the last control output and receiving STOP.
+          if (count > data.size() + 1 || count < data.size()) {
+            std::cout << "Timing dump count " << count
+                      << " != PC sample count " << data.size()
+                      << " — merged " << n_merge << " rows; rest left as 0.\n";
+          }
+        } else {
+          std::cout << "Timing dump short read: got " << got
+                    << " of " << dump.size() << " bytes.\n";
         }
-        if (count != data.size()) {
-          std::cout << "Timing dump count " << count
-                    << " != PC sample count " << data.size()
-                    << " — merged " << n_merge << " rows; rest left as 0.\n";
-        }
-      } else {
-        std::cout << "Timing dump short read: got " << got
-                  << " of " << dump.size() << " bytes.\n";
       }
+    } else {
+      std::cout << "Timing dump header sync failed (missing magic/count).\n";
     }
-  } else {
-    std::cout << "Timing dump header sync failed (missing magic/count).\n";
   }
 
   return data;

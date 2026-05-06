@@ -1,4 +1,4 @@
-#pragma once // modern alternative to #ifndef guards
+#pragma once
 #include <cstdint>
 
 // =====================================================================
@@ -36,8 +36,8 @@ constexpr const char *SERIAL_PORT = "COM3";
 constexpr const char *SERIAL_PORT = "/dev/ttyUSB0";
 #endif
 
-// constexpr unsigned int BAUD_RATE = 921600; //   115200
-constexpr unsigned int BAUD_RATE = 115200; //   
+constexpr unsigned int BAUD_RATE = 921600; //   115200
+// constexpr unsigned int BAUD_RATE = 115200; //   
 
 // =====================================================================
 // PROTOCOL FLAGS --- must match ESP32 flexbot_firmware/src/com.cpp exactly!
@@ -46,7 +46,16 @@ constexpr unsigned int BAUD_RATE = 115200; //
 constexpr uint8_t FLAG_STARTSTOP = 120;
 constexpr uint8_t FLAG_CONTROL = 99;
 constexpr uint8_t FLAG_SEND = 109;
-constexpr uint8_t FLAG_DUMP = 77;  // request end-of-run timing dump
+constexpr uint8_t FLAG_DUMP = 77;  // request end-of-run timing dump when ENABLE_TIMING=true
+
+
+// =====================================================================
+// TIMING DIAGNOSTICS — must match flexbot_firmware/include/config.h
+// true : PC measures pc_loop_us/pc_proc_us/pc_wait_us, requests timing
+//        dump from ESP32, and writes all five columns to CSV.
+// false: none of the above. Use for production runs.
+// =====================================================================
+constexpr bool ENABLE_TIMING = true;
 
 constexpr int PACKET_WRITE_SIZE = 3; // PC→ESP32: flag + two outputs
 constexpr int PACKET_READ_SIZE = 16; // ESP32→PC: pos, strain, time
