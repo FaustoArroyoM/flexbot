@@ -16,15 +16,11 @@ constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;
 // Gain Matrix K [2 motors][6 states]
 // Each row: {K_pos, K_vel, K_strain, K_straindot, 0, 0}
 // =====================================================================
+// State vector: [pos1, pos2, strain1, strain2, strain1_dot, strain2_dot]
 constexpr float K[2][6] = {
     {-2.0F, 0.0F, 0.10F, 0.00F, 0.0F, 0.0F}, // motor 1
-    {0.0F, -3.0F, 0.00F, 0.05F, 0.0F, 0.0F}  // motor 2
+    { 0.0F,-3.0F, 0.00F, 0.05F, 0.0F, 0.0F}  // motor 2
 };
-
-// const float K[2][6] = {0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0.1, 0, 0};
-
-// const float K[2][6] = {-0.0356, -1.1374, 0.018,  0.1872, 0, 0,
-//    -0.0362, -1.2301, 0.0177, 0.1939, 0, 0};
 
 
 

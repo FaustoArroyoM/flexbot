@@ -322,6 +322,60 @@ df = pd.read_csv("data/output_2026-05-06_12-00-00.csv", comment='#')
 
 ---
 
+## Next Steps
+
+### 1. Hardware-verify pending fixes
+
+Three code fixes have been applied but not yet confirmed on the physical arm:
+
+| Item | What to check |
+|---|---|
+| **One-shot neutral on START** | First running tick must command DAC = 127/125 (neutral). Watch the debug log or CSV row 0 `out1`/`out2` — they should be 0 V (i.e. the arm gets one tick of no-force before K·x takes over). |
+| **Graceful save on Hall trip / Ctrl-C** | Push a joint past its limit mid-run. The CSV should save with only the rows collected and contain `# stopped: ESP32 stopped transmitting...` in the header. Also test Ctrl-C mid-run. |
+| **COMM_TIME_MS = 1 stability** | Run ≥ 1000 samples in HIGH_LEVEL with `ENABLE_TIMING = true`. Check `mean(pc_loop_us) ≈ 2000 µs` and zero packet errors. Then repeat with `ENABLE_TIMING = false` to confirm the no-overhead path. |
+
+---
+
+### 2. Tune and characterise the HYBRID outer loop
+
+The inner PI loop (ESP32) is confirmed stable. The outer K·x loop needs systematic tuning:
+
+1. Start with `HYBRID_FORCE_NEUTRAL_REF = true` — confirm inner PI holds the arm (baseline).
+2. Set `HYBRID_OUTER_K_SCALE = 0.05`, `HYBRID_FORCE_NEUTRAL_REF = false`. Check for oscillation.
+3. Increase `HYBRID_OUTER_K_SCALE` in steps of 0.05 until oscillation onset. Back off one step.
+4. Log `ref1`/`ref2` columns from the CSV — verify they stay within the ±`HYBRID_REF_MAX` clamp and are not saturating every cycle.
+5. Adjust `HYBRID_REF_SMOOTH_ALPHA` (lower → smoother reference, more lag) if the arm overshoots.
+
+**Known limitation:** The K matrix was designed for HIGH_LEVEL (voltage output). In HYBRID it is reinterpreted as a position reference in radians. A dedicated outer-loop gain redesign — or at minimum a re-tuning of K for the cascade structure — is needed for reliable performance above `K_SCALE ≈ 0.10`.
+
+---
+
+### 3. Redesign the HYBRID outer-loop gain matrix
+
+The current K was derived for the HIGH_LEVEL voltage-output loop. For HYBRID cascade control, the outer loop should be redesigned so its output has units of radians and accounts for:
+- The ~200 Hz outer-loop update rate (USB round-trip limited)
+- The inner-loop bandwidth (~1 kHz PI)
+- The `HYBRID_REF_MAX` physical clamp
+
+A starting point: use a much smaller position gain only (zero strain terms), then add strain feedback once the position loop is stable.
+
+---
+
+### 4. Improve HYBRID reference resolution
+
+The position reference is encoded as a single byte (0–255, centred at 127). Over ±`HYBRID_REF_MAX = 0.2` rad this gives ~1.6 mrad per step, which causes a small limit cycle as the inner PI hunts between adjacent reference levels. Options:
+
+- Widen `HYBRID_REF_MAX` — increases range but coarsens resolution per step.
+- Transmit references as two bytes (int16) — requires a protocol change in both repos and a change to the packet size constant, but eliminates quantisation as a concern.
+
+---
+
+### 5. Wire up shoulder Hall sensors
+
+`PIN_HALL2` and `PIN_HALL3` (shoulder joint limits) are defined in `config.h` but the interrupts are disabled in `hall.cpp` because they were not operational on the current hardware revision. Once the hardware issue is resolved, re-enable the four lines in `setup_hall()`.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
