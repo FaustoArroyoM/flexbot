@@ -3,7 +3,6 @@ serialcomm_c/build/
 serialcomm_c/compile_commands.json
 build/
 
-# TODO temporally disabled
 *.csv
 
 # platfomIO code
@@ -34,7 +33,6 @@ compile_commands.json
 # Precompiled Headers
 *.gch
 *.pch
-S
 # Linker files
 *.ilk
 

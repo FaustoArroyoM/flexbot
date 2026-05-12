@@ -2,9 +2,7 @@ import csv, statistics, math
 from pathlib import Path
 
 files = [
-    "/home/fausto/Desktop/flexbot/data/output_2026-05-06_12-09-13.csv",
-    "/home/fausto/Desktop/flexbot/data/output_2026-05-06_12-09-26.csv",
-    "/home/fausto/Desktop/flexbot/data/output_2026-05-06_13-02-44.csv",
+    # add the .csv files you want to analyze here
 ]
 
 for fp in files:
