@@ -387,3 +387,18 @@ The position reference is encoded as a single byte (0–255, centred at 127). Ov
 | Arm oscillates immediately in HYBRID | Check that `HYBRID_REF_MAX_1/2` matches in both `config.h` files exactly. A mismatch amplifies the reference by their ratio. |
 | Build fails: `std::filesystem` errors | Requires GCC 8+ or MSVC 19.14+. Update your toolchain. |
 | clangd shows errors but build works | Regenerate `compile_commands.json`: delete `build/` and re-run CMake. |
+
+---
+
+## License & Credits
+
+This project's own code is released under the **MIT License** — see [`LICENSE`](LICENSE).
+
+It also bundles third-party code that is **not** covered by that license and
+retains its original author's attribution:
+
+- **serialib** — cross-platform serial communication library by
+  **Philippe Lucidarme** (University of Angers), v2.0. Vendored unmodified in
+  `serialcomm_c/{include,src}/serialib.{h,cpp}`.
+
+Full details are in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

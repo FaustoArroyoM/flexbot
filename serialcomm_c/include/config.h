@@ -8,7 +8,7 @@
 // HYBRID     : ESP32 fast PI tracks reference sent by PC
 // =====================================================================
 enum class CtrlMode { HIGH_LEVEL, LOW_LEVEL, HYBRID };
-constexpr CtrlMode CTRL_MODE = CtrlMode::HIGH_LEVEL;
+constexpr CtrlMode CTRL_MODE = CtrlMode::LOW_LEVEL;
 
 
 // =====================================================================
@@ -73,17 +73,17 @@ constexpr float REF_POS2 = 0.0F;
 // =================================================================================================
 
 // Scales outer-loop K*x contribution before converting to reference position.
-constexpr float HYBRID_OUTER_K_SCALE = 0.10F;
+constexpr float HYBRID_OUTER_K_SCALE = 1.0F; // 0.10F
 
 // Maximum absolute position reference (rad) sent for each joint.
-constexpr float HYBRID_REF_MAX_1 = 0.2F;
-constexpr float HYBRID_REF_MAX_2 = 0.2F;
+constexpr float HYBRID_REF_MAX_1 = 1.0F; //0.2F;
+constexpr float HYBRID_REF_MAX_2 = 1.0F; //0.2F;
 
 // [0,1], 1.0 = no smoothing, lower = smoother/slower ref updates.
-constexpr float HYBRID_REF_SMOOTH_ALPHA = 0.6F;
+constexpr float HYBRID_REF_SMOOTH_ALPHA = 1.0F; //0.6F;
 
 // true = send neutral references only (PI-only behavior through HYBRID path)
-constexpr bool HYBRID_FORCE_NEUTRAL_REF = false;
+constexpr bool HYBRID_FORCE_NEUTRAL_REF = true;
 
 constexpr float DAC_SCALE = 256.0F / 3.3F; // voltage → uint8 scaling
 constexpr int SERIAL_TIMEOUT_MS = 2000;    // readBytes timeout
