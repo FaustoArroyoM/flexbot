@@ -10,7 +10,9 @@ below retains the license and attribution of its original author.
 
 - **Files:** `serialcomm_c/include/serialib.h`, `serialcomm_c/src/serialib.cpp`
 - **Author:** Philippe Lucidarme — University of Angers
-- **Version:** 2.0 (27 December 2019)
+- **Upstream:** <https://github.com/imabot2/serialib>
+- **Version vendored:** 2.0 (27 December 2019), vendored unmodified as-is —
+  no local patches.
 - **Role in this project:** Cross-platform serial-port communication used by the
   PC-side host (`serialcomm.cpp`). Vendored unmodified.
 
@@ -25,6 +27,12 @@ below retains the license and attribution of its original author.
 >
 > This is a licence-free software, it can be used by anyone who try to build a
 > better world.
+
+**License note:** the original header does not name an OSI-approved license.
+It pairs an MIT/X11-style warranty disclaimer with a "licence-free ... can be
+used by anyone" dedication — the author's intent reads as free, attribution-
+preserving use, not a formal license grant. This project treats it under that
+plain-language intent rather than silently relabeling it as MIT.
 
 The `serialib` files are treated as read-only in this repository and must not be
 modified (see `CLAUDE.md`). All original attribution is preserved in the file

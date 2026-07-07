@@ -1,7 +1,96 @@
 # FlexBot — PC Software (`serialcomm_c`)
 
-PC-side control and data-logging software for the FlexBot 2-DOF robot arm.
-Communicates with the ESP32 firmware over USB serial. Written in **C++17**, built with **CMake**.
+Real-time cascade control of a flexible two-joint robot arm — C++17 host +
+ESP32 firmware talking over a custom 921600-baud serial protocol at 1 kHz.
+
+<!--
+  TODO (needs hardware access): add a photo of the arm and/or a short GIF
+  of a HIGH_LEVEL/HYBRID run here. See docs/hardware.md and the "Next
+  steps" item on media capture. Keep under ~10 MB, store in docs/media/.
+-->
+
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+[![CMake](https://img.shields.io/badge/build-CMake-informational.svg)](https://cmake.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](#requirements)
+[![ESP32](https://img.shields.io/badge/firmware-ESP32-red.svg)](https://github.com/FaustoArroyoM/flexbot_firmware)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![build](https://github.com/FaustoArroyoM/flexbot/actions/workflows/build.yml/badge.svg)](https://github.com/FaustoArroyoM/flexbot/actions/workflows/build.yml)
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph PC["PC — Ubuntu / Windows"]
+        CTRL["Control loop, ~200 Hz<br/>(HIGH_LEVEL / HYBRID outer loop)"]
+        LOG["CSV logger"]
+        CTRL --> LOG
+    end
+
+    subgraph ESP32["ESP32 — dual-core, 240 MHz"]
+        CYCLE["cycle() @ 1 kHz — Core 0<br/>encoders, strain gauges,<br/>PI control, DAC out"]
+        COMM["serialcomm() @ 1 ms — Core 1"]
+        CYCLE <--> COMM
+    end
+
+    HW["Motors + encoders + strain gauges"]
+
+    PC <-->|USB serial, 921600 baud| ESP32
+    ESP32 <--> HW
+```
+
+Three `CTRL_MODE`s change **who closes the loop** — PC (`HIGH_LEVEL`),
+ESP32 (`LOW_LEVEL`), or both in cascade (`HYBRID`) — selected at compile
+time in both repos' `config.h`. See [Control Modes](#control-modes) below.
+
+## Highlights
+
+- **Compile-time mode dispatch** — `if constexpr` over runtime flags: the
+  other two control modes' code is deleted at compile time, and the
+  protocol can't silently desync from what the firmware actually runs.
+- **Cascade (HYBRID) control** — a 1 kHz PI loop on the ESP32 tracks a
+  position reference from a ~200 Hz PC outer loop, decoupling motor
+  control bandwidth from USB round-trip latency.
+- **Zero-cost timing instrumentation** — `ENABLE_TIMING` compiles away
+  entirely when off; per-packet µs timing is buffered on-device and
+  merged into the CSV only when explicitly enabled.
+- **Crash-safe experiment logging** — a SIGINT-driven atomic flag and
+  partial-run CSV save mean a Ctrl-C or a hardware safety trip never
+  loses collected data.
+- **Reverted fixes, documented not hidden** — a "fix" that was tried,
+  hardware-tested, and reverted twice is recorded with the reasoning in
+  [`docs/design-decisions.md`](docs/design-decisions.md), alongside five
+  other decision write-ups.
+
+## Quick start
+
+Happy path: Ubuntu 22.04 + ESP32 DevKitC. Windows steps are in
+[Requirements](#requirements) below.
+
+```bash
+# 1. Clone both repos
+git clone git@github.com:FaustoArroyoM/flexbot.git
+git clone git@github.com:FaustoArroyoM/flexbot_firmware.git
+
+# 2. PC-side build dependencies
+sudo apt update && sudo apt install build-essential cmake clangd
+
+# 3. Build the PC host
+cd flexbot
+cmake -S serialcomm_c -B build && cmake --build build
+
+# 4. USB serial permissions (once per user, then log out/in)
+sudo usermod -aG dialout $USER
+
+# 5. Flash the ESP32 — see flexbot_firmware's README for PlatformIO setup
+#    (cd ../flexbot_firmware && pio run -t upload)
+
+# 6. Run an experiment
+./build/flexbot_app
+```
+
+No arm attached? You can still build and run both sides against a bare
+ESP32 — see [`docs/hardware.md`](docs/hardware.md) for what that looks
+like and the full bill of materials.
 
 ---
 
@@ -11,8 +100,8 @@ FlexBot is split across two repositories that must stay in sync:
 
 | Repo | What it is |
 |---|---|
-| **`flexbot/`** (this repo) | PC software: runs the control loop, logs sensor data to CSV |
-| **`flexbot_firmware/`** | ESP32 firmware: reads sensors, drives motors, runs inner-loop control |
+| **[`flexbot/`](https://github.com/FaustoArroyoM/flexbot)** (this repo) | PC software: runs the control loop, logs sensor data to CSV |
+| **[`flexbot_firmware/`](https://github.com/FaustoArroyoM/flexbot_firmware)** | ESP32 firmware: reads sensors, drives motors, runs inner-loop control |
 
 The two repos share a compile-time constant `CTRL_MODE` and several protocol constants. **Both must be set to the same values and recompiled/reflashed after any change.** The firmware README covers ESP32 IDE setup (VS Code + PlatformIO).
 
@@ -47,7 +136,19 @@ flexbot/
 │   │   └── serialib.cpp   ← Third-party serial library (do not modify)
 │   └── CMakeLists.txt
 ├── build/                 ← CMake output (generated, not committed)
-└── data/                  ← CSV experiment logs
+├── data/
+│   └── analyze_timing_data.py ← Loads/plots ENABLE_TIMING CSV columns
+├── docs/
+│   ├── architecture.md    ← Control modes, packet format, FreeRTOS layout
+│   ├── change-log.md      ← Every fix vs. original code, with rationale
+│   ├── design-decisions.md ← Decision → alternative rejected → why
+│   ├── hardware.md        ← Bill of materials, wiring, vendor datasheet links
+│   ├── open-issues.md     ← Active bugs and untested items
+│   └── specs/              ← Planning docs for repo-level work (this file's own kind)
+├── .github/                ← CI workflow, issue/PR templates
+├── LICENSE
+├── THIRD_PARTY_NOTICES.md ← serialib attribution and license caveat
+└── CLAUDE.md               ← AI-assistant project memory / doc-maintenance rules
 ```
 
 ---
@@ -77,7 +178,7 @@ cmake -S serialcomm_c -B build
 cmake --build build
 
 # The binary is at:
-./build/serialcomm
+./build/flexbot_app
 ```
 
 ---
@@ -115,9 +216,9 @@ sudo usermod -aG dialout $USER
 2. Build the PC software (see Build above).
 3. Run the binary:
    ```bash
-   ./build/serialcomm
+   ./build/flexbot_app
    # or save to an explicit path:
-   ./build/serialcomm /path/to/output.csv
+   ./build/flexbot_app /path/to/output.csv
    ```
 4. Enter the number of samples when prompted. The run starts immediately.
 5. Press `Ctrl-C` at any time for a graceful abort — all collected samples are saved.

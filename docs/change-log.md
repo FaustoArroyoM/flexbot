@@ -716,3 +716,58 @@ repo. License choice itself unchanged — MIT confirmed correct.
 
 **Note:** firmware repo licensing (pre-existing original author + PlatformIO
 `lib_deps` third-party libs) is a separate later task, not covered here.
+
+## 32. Repo showcase/hygiene pass (2026-07-07)
+
+**Design/documentation change (no runtime code behavior impact).**
+Implements `docs/specs/showcase-plan.md`.
+
+**Doc bugs found and fixed:**
+
+- `CLAUDE.md` claimed 115200 baud; `config.h` (both repos) has been at
+  921600 since §25's Phase 3. `CLAUDE.md` corrected; README/architecture.md
+  were already accurate.
+- README's Build/Running sections told users to run `./build/serialcomm`,
+  which has never existed — the CMake target (`serialcomm_c/CMakeLists.txt`)
+  is `flexbot_app`, confirmed against an actual local build output. Fixed
+  all three occurrences.
+- `CLAUDE.md`'s build command built from inside `serialcomm_c/`; README
+  builds from the repo root. Aligned `CLAUDE.md` to the repo-root form.
+
+**Added:**
+
+- `docs/hardware.md` — BOM with vendor links (Espressif, AZ-Delivery,
+  Quanser, maxon, US Digital, Silicon Labs, WCH), wiring/pin table sourced
+  from `flexbot_firmware/include/config.h` and `analog.cpp` (confirms
+  motor 1 = shoulder/`DAC1`, motor 2 = elbow/`DAC2`, restricted range),
+  and an explicit "runs without the arm" caveat.
+- `docs/design-decisions.md` — six decision write-ups distilled from this
+  file, verified against the full log rather than assumed from the README.
+- `.github/workflows/build.yml` — Linux + Windows CMake build matrix.
+  `-Werror` verified clean locally on GCC 11 before enabling; MSVC not
+  locally verifiable, so Windows runs `/W4` warn-only until a green CI run
+  confirms it's clean too.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue/PR templates.
+- README hero: pitch, badges, Mermaid architecture diagram, highlights,
+  quick-start block (folded from scattered sections).
+
+**Repo hygiene:**
+
+- `.gitignore`: removed a stale `firmware/.pio` block (no `firmware/` dir
+  in this repo — leftover from before the two-repo split); un-ignored
+  `.clang-tidy`/`.clangd` (previously matched and excluded by their own
+  glob patterns, unintentionally); added `.vscode/extensions.json` as a
+  tracked exception to the otherwise-ignored `.vscode/`; added
+  `docs/ESP32/*.pdf`, `docs/ESP32/*.zip`, `docs/Robot_Hardware/*.pdf` so
+  vendor files aren't re-added by accident.
+- Deleted local untracked `serialcomm_c/serialcomm.exe` (stale artifact,
+  already git-ignore-matched).
+- Vendor PDFs/driver zips under `docs/ESP32/` and `docs/Robot_Hardware/`
+  (~35 MB, copyrighted, no redistribution rights — see `docs/hardware.md`)
+  removed from the working tree and purged from git history via
+  `git filter-repo` while the repo had no external clones.
+
+**Not done in this pass (see `docs/specs/showcase-plan.md` for the full
+checklist):** media capture (needs hardware), GitHub repo
+metadata/topics/social preview, flipping the repos from private to
+public, and the `v1.0.0` tag.

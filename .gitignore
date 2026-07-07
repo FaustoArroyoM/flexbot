@@ -5,21 +5,16 @@ build/
 
 *.csv
 
-# platfomIO code
-firmware/.pio/
-firmware/compile_commands.json
-firmware/.vscode/.browse.c_cpp.db*
-firmware/.vscode/c_cpp_properties.json
-firmware/.vscode/launch.json
-firmware/.vscode/ipch
+# vendor datasheets/drivers — linked from docs/hardware.md instead of committed
+docs/ESP32/*.pdf
+docs/ESP32/*.zip
+docs/Robot_Hardware/*.pdf
 
-
-#  editor configs 
-.vscode/
+#  editor configs
+.vscode/*
+!.vscode/extensions.json
 compile_commands.json
-*.clang-tidy
 *.bak
-*.clangd
 .cache/
 # Prerequisites
 *.d
