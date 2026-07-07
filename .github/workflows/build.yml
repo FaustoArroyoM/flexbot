@@ -1,0 +1,32 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # -Werror verified clean locally on GCC 11 (Linux). MSVC has not been
+      # verified the same way, so /W4 is warn-only here until a green run
+      # confirms it's clean too — then add /WX.
+      - name: Configure (Linux, warnings as errors)
+        if: runner.os == 'Linux'
+        run: cmake -S serialcomm_c -B build -DCMAKE_CXX_FLAGS="-Wall -Wextra -Werror"
+
+      - name: Configure (Windows, warnings visible)
+        if: runner.os == 'Windows'
+        run: cmake -S serialcomm_c -B build -DCMAKE_CXX_FLAGS="/W4"
+
+      - name: Build
+        run: cmake --build build --config Debug

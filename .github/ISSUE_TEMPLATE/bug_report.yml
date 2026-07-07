@@ -1,0 +1,70 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: ctrl-mode
+    attributes:
+      label: CTRL_MODE
+      options:
+        - HIGH_LEVEL
+        - LOW_LEVEL
+        - HYBRID
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: config-sync
+    attributes:
+      label: Are both config.h files (PC + ESP32) confirmed in sync?
+      description: CTRL_MODE, ENABLE_TIMING, and HYBRID_REF_MAX_1/2 must match exactly in both repos.
+      options:
+        - "Yes, verified both files"
+        - "No / not checked"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: PC operating system
+      options:
+        - Ubuntu 22.04
+        - Other Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: baud
+    attributes:
+      label: BAUD_RATE
+      placeholder: "e.g. 921600"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Hardware attached, or bare ESP32?
+      options:
+        - Full arm attached
+        - Bare ESP32 (no arm)
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you expected vs. what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: csv-header
+    attributes:
+      label: CSV header lines (if applicable)
+      description: Paste the `#`-prefixed header lines from the run's CSV output, if you have one.
+      render: text

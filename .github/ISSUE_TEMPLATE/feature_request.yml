@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+    validations:
+      required: true
+
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: Does this require hardware access to implement or verify?
+      options:
+        - "No — host/firmware logic only"
+        - "Yes — needs the physical arm"
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Which repo(s) does this touch?
+      multiple: true
+      options:
+        - flexbot (PC host)
+        - flexbot_firmware (ESP32)
+        - Both (protocol change)
+    validations:
+      required: true
