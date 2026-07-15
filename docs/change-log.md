@@ -812,3 +812,15 @@ on the already-present `<chrono>`), and swapped each `sleep(1);` for
 `std::this_thread::sleep_for(std::chrono::seconds(1));`. This is the
 portable C++11 equivalent — identical 1 s sleep on both platforms, no
 `#ifdef` needed. Verified the Linux build still compiles clean.
+
+**Follow-up (same CI job, next latent Windows error):** with `<unistd.h>`
+gone the MSVC compile advanced and then failed at every `CtrlMode`
+use site with `error C2589: 'constant'`. Cause: `serialib.h` pulls in
+`<windows.h>` on Windows, whose `winnt.h` `#define`s the KIRQL macros
+`HIGH_LEVEL` and `LOW_LEVEL`, which collide with the `CtrlMode`
+enumerators of the same name. `config.h` (and thus the `enum class
+CtrlMode` definition) is included before `serialib.h`, so the enum
+itself parses fine — only the use sites are polluted. Since `serialib.h`
+is third-party and must not be modified, added a guarded
+`#undef HIGH_LEVEL` / `#undef LOW_LEVEL` (`#ifdef _WIN32`) right after
+the includes in `serialcomm.cpp`. No-op on Linux.

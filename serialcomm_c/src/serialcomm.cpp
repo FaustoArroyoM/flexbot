@@ -16,6 +16,16 @@
 #include <thread>
 #include <vector>
 
+// serialib.h pulls in <windows.h> on Windows, whose winnt.h #defines the KIRQL
+// macros HIGH_LEVEL and LOW_LEVEL. They collide with the CtrlMode enumerators
+// at every use site below (MSVC error C2589). config.h is included above this,
+// so the enum itself parses fine — we only need to clear the macros. No-op on
+// Linux and harmless if the macro is absent.
+#ifdef _WIN32
+#undef HIGH_LEVEL
+#undef LOW_LEVEL
+#endif
+
 // SIGINT handler signals the loop to break and flush a partial CSV.
 // Only signal-safe types are touched; the loop polls this every iteration.
 std::atomic<bool> stop_requested{false};
