@@ -129,3 +129,28 @@ by timing (which would just move the race, not remove it): the PC now
 scans the stream for an unambiguous 4-byte marker no legitimate sensor
 packet can produce, so any stale bytes are skipped rather than
 misinterpreted.
+
+## Limitations — read before an interview
+
+Honest gaps, stated up front rather than discovered by a reader:
+
+- **No committed experiment data.** Neither repo tracks raw CSV logs,
+  plots, or accuracy/tracking metrics in git — `*.csv` is gitignored by
+  design (experiment output is a local artifact, not a repo asset). The
+  only concrete numbers that exist anywhere in either repo are the ones
+  already cited above and in
+  [`docs/change-log.md`](change-log.md) / [`docs/open-issues.md`](open-issues.md):
+  `esp_comm_us` max 145 µs / `esp_comp_us` max 274 µs, the 8× protocol-floor
+  drop (~1.8 ms → ~0.22 ms), the 7.5× `HYBRID_REF_MAX` reference
+  amplification bug, and the ENABLE_TIMING RAM cost (~5%→19% of SRAM).
+  There is no tracking-error or settling-time metric on record for any
+  control mode.
+- **No unit tests.** CI ([`.github/workflows/build.yml`](../.github/workflows/build.yml))
+  proves both repos compile, on the matrix it targets — it does not
+  exercise any code path at runtime. There is no test suite on either
+  side of the two-repo system.
+- **Project context is not documented in-repo.** Neither repo states who
+  commissioned this work, in what setting (lab / thesis / coursework /
+  employer), or what the arm is ultimately for. That context lives outside
+  git and should be added by hand — to the README or here — before relying
+  on this repo as the sole account of the project.

@@ -13,9 +13,8 @@
 #include <cmath>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
-
-#include <unistd.h>
 
 // SIGINT handler signals the loop to break and flush a partial CSV.
 // Only signal-safe types are touched; the loop polls this every iteration.
@@ -41,9 +40,9 @@ bool openConnection(serialib &serial) {
     return false;
   }
   std::cout << "Successful connection to " << SERIAL_PORT << "\n";
-  sleep(1);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   serial.flushReceiver();
-  sleep(1);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   return true;
 }
 
@@ -405,7 +404,7 @@ int main(int argc, char *argv[]) {
   std::string stop_reason;
   const std::vector<Sample> data = runControlLoop(serial, len, stop_reason);
 
-  sleep(1);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   serial.closeDevice();
   std::cout << "Done! Stop reason: " << stop_reason << "\n";
   std::cout << "Collected " << data.size() << " samples.\n";

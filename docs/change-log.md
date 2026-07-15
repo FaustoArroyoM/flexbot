@@ -771,3 +771,44 @@ Implements `docs/specs/showcase-plan.md`.
 checklist):** media capture (needs hardware), GitHub repo
 metadata/topics/social preview, flipping the repos from private to
 public, and the `v1.0.0` tag.
+
+## 33. "Limitations" section added to design-decisions.md (2026-07-09)
+
+**Design/documentation change (no runtime code behavior impact).**
+
+Added a "Limitations — read before an interview" section to the end of
+`docs/design-decisions.md` stating, explicitly rather than leaving a
+reader to discover it:
+
+- No experiment data (CSVs, plots, tracking/accuracy metrics) is
+  committed to either repo — `*.csv` is gitignored by design. The only
+  concrete measurements recoverable from either repo are the ones already
+  cited in this file and `docs/open-issues.md`: `esp_comm_us`/`esp_comp_us`
+  max latency (145 µs / 274 µs), the 8× protocol-floor drop from the §25
+  baud bump, the §23 7.5× `HYBRID_REF_MAX` mismatch, and the §27
+  `ENABLE_TIMING` RAM cost. No tracking-error or settling-time number
+  exists on record for any control mode.
+- No unit tests on either side of the two-repo system — CI
+  (`.github/workflows/build.yml`) is build-only, it proves compilation,
+  not runtime behavior.
+- Project context (who commissioned the work, what setting — lab,
+  thesis, coursework, employer) is not stated anywhere in-repo and was
+  left as an explicit TODO for the user to add by hand, since it isn't
+  recoverable from the code or existing docs.
+
+## 34. Windows CI build fix — drop POSIX `<unistd.h>` from serialcomm.cpp (2026-07-15)
+
+**Portability fix (no runtime behavior change on Linux).**
+
+The `build (windows-latest)` CI job was failing at compile with
+`error C1083: Cannot open include file: 'unistd.h'`. `serialcomm.cpp`
+included the POSIX-only `<unistd.h>` solely to call `sleep(1)` in three
+places (`openConnection` ×2, and the reset path). MSVC has no such
+header, so the Windows build aborted before linking; the ubuntu-22.04
+job was unaffected.
+
+Fix: replaced `#include <unistd.h>` with `#include <thread>` (and rely
+on the already-present `<chrono>`), and swapped each `sleep(1);` for
+`std::this_thread::sleep_for(std::chrono::seconds(1));`. This is the
+portable C++11 equivalent — identical 1 s sleep on both platforms, no
+`#ifdef` needed. Verified the Linux build still compiles clean.
